@@ -128,3 +128,27 @@ canvas {
   opacity: 0.8;
   text-align: center;
 }
+@media (max-width: 700px) {
+  canvas {
+    height: 60vh;
+  }
+
+  .topbar {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  #chatForm {
+    flex-direction: column;
+  }
+
+  button,
+  input {
+    width: 100%;
+    font-size: 18px;
+  }
+
+  h1 {
+    font-size: 28px;
+  }
+}
