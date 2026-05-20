@@ -271,9 +271,13 @@ function movePlayer() {
   const p = players[myId];
   const speed = 0.16;
 
-  const forward = new THREE.Vector3(Math.sin(yaw), 0, -Math.cos(yaw));
-  const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
+  const forward = new THREE.Vector3();
+camera.getWorldDirection(forward);
+forward.y = 0;
+forward.normalize();
 
+const right = new THREE.Vector3();
+right.crossVectors(forward, camera.up).normalize();
   if (keys["w"] || keys["arrowup"]) {
     p.x += forward.x * speed;
     p.z += forward.z * speed;
