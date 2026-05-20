@@ -21,10 +21,6 @@ body {
   background: radial-gradient(circle, #3344ff, #070711);
 }
 
-#menu.hidden {
-  display: none !important;
-}
-
 #game {
   position: fixed;
   inset: 0;
@@ -40,7 +36,7 @@ canvas {
   z-index: 1;
 }
 
-#hud, #chatBox, #lookBtn, #crosshair {
+#hud, #chatBox, #chatToggle, #crosshair, #mobileControls {
   pointer-events: auto;
 }
 
@@ -77,19 +73,26 @@ canvas {
   z-index: 5;
 }
 
+#chatToggle {
+  position: fixed;
+  right: 10px;
+  bottom: 120px;
+  z-index: 6;
+}
+
 #chatBox {
   position: fixed;
   left: 10px;
   bottom: 10px;
   width: 330px;
   max-width: 95vw;
-  z-index: 5;
+  z-index: 6;
 }
 
 #messages {
   height: 110px;
   overflow-y: auto;
-  background: rgba(0,0,0,0.45);
+  background: rgba(0,0,0,0.55);
   padding: 8px;
   border-radius: 12px;
 }
@@ -104,9 +107,24 @@ canvas {
   flex: 1;
 }
 
-#lookBtn {
+#mobileControls {
   position: fixed;
-  right: 10px;
-  bottom: 10px;
+  left: 15px;
+  bottom: 25px;
   z-index: 6;
+  text-align: center;
+}
+
+#mobileControls button {
+  width: 58px;
+  height: 58px;
+  margin: 3px;
+  font-size: 22px;
+  background: rgba(255,255,255,0.85);
+}
+
+@media (min-width: 800px) {
+  #mobileControls {
+    display: none;
+  }
 }
