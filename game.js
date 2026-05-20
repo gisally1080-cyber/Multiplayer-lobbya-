@@ -105,12 +105,33 @@ function init3D() {
   scene.add(ambient);
 
   const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(100, 100),
-    new THREE.MeshStandardMaterial({ color: 0x228833 })
-  );
-  floor.rotation.x = -Math.PI / 2;
-  scene.add(floor);
+  new THREE.PlaneGeometry(120, 120),
+  new THREE.MeshStandardMaterial({ color: 0x2f8f3a })
+);
+floor.rotation.x = -Math.PI / 2;
+scene.add(floor);
 
+const grid = new THREE.GridHelper(120, 40, 0xffffff, 0x222222);
+scene.add(grid);
+
+function makeWall(x, z, w, h, d) {
+  const wall = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshStandardMaterial({ color: 0x444466 })
+  );
+  wall.position.set(x, h / 2, z);
+  scene.add(wall);
+}
+
+makeWall(0, -60, 120, 6, 2);
+makeWall(0, 60, 120, 6, 2);
+makeWall(-60, 0, 2, 6, 120);
+makeWall(60, 0, 2, 6, 120);
+
+makeWall(0, 15, 25, 4, 2);
+makeWall(20, -10, 2, 4, 25);
+makeWall(-25, -15, 30, 4, 2);
+makeWall(-10, 35, 2, 4, 20);
   for (let i = 0; i < 25; i++) {
     const box = new THREE.Mesh(
       new THREE.BoxGeometry(2, 2, 2),
