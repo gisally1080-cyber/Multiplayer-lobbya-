@@ -21,6 +21,9 @@ let yaw = 0;
 let pitch = 0;
 
 let scene, camera, renderer;
+let breakableData = {};
+let breakableMeshes = {};
+let shotLines = [];
 
 socket.on("welcome", data => myId = data.id);
 
@@ -60,6 +63,15 @@ socket.on("playerMoved", p => {
   updatePlayerMesh(p);
 });
 
+socket.on("breakables", data => {
+  breakableData = data;
+  updateBreakables();
+});
+
+socket.on("gunShot", data => {
+  makeShotLine(data.x, data.z, data.dx, data.dz);
+});
+
 socket.on("chat", data => {
   const div = document.createElement("div");
   div.textContent = `${data.name}: ${data.text}`;
@@ -87,12 +99,29 @@ chatForm.onsubmit = e => {
 window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
 window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
+window.addEventListener("click", () => {
+  if (!players[myId] || !players[myId].hasGun || !camera) return;
+
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  dir.y = 0;
+  dir.normalize();
+
+  socket.emit("shoot", {
+    dx: dir.x,
+    dz: dir.z
+  });
+});
+
 function mobileButton(id, key) {
   const btn = document.getElementById(id);
+  if (!btn) return;
+
   btn.addEventListener("touchstart", e => {
     e.preventDefault();
     keys[key] = true;
   });
+
   btn.addEventListener("touchend", e => {
     e.preventDefault();
     keys[key] = false;
@@ -133,6 +162,8 @@ function clearMap() {
   });
   scene.clear();
   keep.forEach(obj => scene.add(obj));
+  playerMeshes = {};
+  breakableMeshes = {};
 }
 
 function makeWall(x, z, w, h, d, color = 0x444466) {
@@ -195,6 +226,8 @@ function buildMap(room) {
     }
     makeWall(0, 0, 20, 1, 20, 0xffdd88);
   }
+
+  updateBreakables();
 }
 
 function setupLookControls() {
@@ -205,9 +238,14 @@ function setupLookControls() {
   });
 
   let lastTouch = null;
-  renderer.domElement.addEventListener("touchstart", e => lastTouch = e.touches[0]);
+
+  renderer.domElement.addEventListener("touchstart", e => {
+    lastTouch = e.touches[0];
+  });
+
   renderer.domElement.addEventListener("touchmove", e => {
     if (!lastTouch) return;
+
     const t = e.touches[0];
     yaw -= (t.clientX - lastTouch.clientX) * 0.006;
     pitch -= (t.clientY - lastTouch.clientY) * 0.006;
@@ -221,6 +259,7 @@ function updatePlayerMesh(p) {
 
   if (!playerMeshes[p.id]) {
     const group = new THREE.Group();
+
     const body = new THREE.Mesh(
       new THREE.CapsuleGeometry(0.5, 1.2, 4, 8),
       new THREE.MeshStandardMaterial({ color: new THREE.Color(p.color) })
@@ -228,17 +267,28 @@ function updatePlayerMesh(p) {
     body.position.y = 1;
     group.add(body);
 
-    const canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 128;
-    const texture = new THREE.CanvasTexture(canvas);
-    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: texture }));
+    if (p.hasGun) {
+      const gun = new THREE.Mesh(
+        new THREE.BoxGeometry(0.9, 0.22, 0.22),
+        new THREE.MeshStandardMaterial({ color: 0x111111 })
+      );
+      gun.position.set(0.65, 1.1, -0.25);
+      group.add(gun);
+    }
+
+    const labelCanvas = document.createElement("canvas");
+    labelCanvas.width = 256;
+    labelCanvas.height = 128;
+
+    const labelTexture = new THREE.CanvasTexture(labelCanvas);
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture }));
     label.position.y = 2.4;
     label.scale.set(3, 1.5, 1);
     group.add(label);
 
-    group.labelCanvas = canvas;
-    group.labelTexture = texture;
+    group.labelCanvas = labelCanvas;
+    group.labelTexture = labelTexture;
+
     scene.add(group);
     playerMeshes[p.id] = group;
   }
@@ -249,20 +299,69 @@ function updatePlayerMesh(p) {
 
   const ctx = mesh.labelCanvas.getContext("2d");
   ctx.clearRect(0, 0, 256, 128);
+
   ctx.fillStyle = "white";
   ctx.font = "28px Arial";
   ctx.textAlign = "center";
   ctx.fillText(p.name, 128, 42);
 
+  if (p.hasGun) {
+    ctx.fillStyle = "yellow";
+    ctx.font = "20px Arial";
+    ctx.fillText("GUN", 128, 65);
+  }
+
   if (p.lastMessage && Date.now() - (p.messageTime || 0) < 3000) {
     ctx.fillStyle = "rgba(0,0,0,0.75)";
-    ctx.fillRect(20, 55, 216, 42);
+    ctx.fillRect(20, 72, 216, 42);
     ctx.fillStyle = "white";
     ctx.font = "22px Arial";
-    ctx.fillText(p.lastMessage.slice(0, 18), 128, 84);
+    ctx.fillText(p.lastMessage.slice(0, 18), 128, 101);
   }
 
   mesh.labelTexture.needsUpdate = true;
+}
+
+function updateBreakables() {
+  if (!scene) return;
+
+  for (const id in breakableData) {
+    const b = breakableData[id];
+
+    if (b.broken) {
+      if (breakableMeshes[id]) {
+        scene.remove(breakableMeshes[id]);
+        delete breakableMeshes[id];
+      }
+      continue;
+    }
+
+    if (!breakableMeshes[id]) {
+      const block = new THREE.Mesh(
+        new THREE.BoxGeometry(3, 3, 3),
+        new THREE.MeshStandardMaterial({ color: 0xaa3333 })
+      );
+      block.position.set(b.x, 1.5, b.z);
+      scene.add(block);
+      breakableMeshes[id] = block;
+    }
+  }
+}
+
+function makeShotLine(x, z, dx, dz) {
+  if (!scene) return;
+
+  const points = [
+    new THREE.Vector3(x, 1.5, z),
+    new THREE.Vector3(x + dx * 50, 1.5, z + dz * 50)
+  ];
+
+  const geo = new THREE.BufferGeometry().setFromPoints(points);
+  const mat = new THREE.LineBasicMaterial({ color: 0xffffff });
+  const line = new THREE.Line(geo, mat);
+
+  scene.add(line);
+  shotLines.push({ line, time: Date.now() });
 }
 
 function movePlayer() {
@@ -272,24 +371,28 @@ function movePlayer() {
   const speed = 0.16;
 
   const forward = new THREE.Vector3();
-camera.getWorldDirection(forward);
-forward.y = 0;
-forward.normalize();
+  camera.getWorldDirection(forward);
+  forward.y = 0;
+  forward.normalize();
 
-const right = new THREE.Vector3();
-right.crossVectors(forward, camera.up).normalize();
+  const right = new THREE.Vector3();
+  right.crossVectors(forward, camera.up).normalize();
+
   if (keys["w"] || keys["arrowup"]) {
     p.x += forward.x * speed;
     p.z += forward.z * speed;
   }
+
   if (keys["s"] || keys["arrowdown"]) {
     p.x -= forward.x * speed;
     p.z -= forward.z * speed;
   }
+
   if (keys["a"] || keys["arrowleft"]) {
     p.x -= right.x * speed;
     p.z -= right.z * speed;
   }
+
   if (keys["d"] || keys["arrowright"]) {
     p.x += right.x * speed;
     p.z += right.z * speed;
@@ -304,15 +407,28 @@ right.crossVectors(forward, camera.up).normalize();
   camera.rotation.y = yaw;
   camera.rotation.x = pitch;
 
-  socket.emit("move", { x: p.x, z: p.z, rot: yaw });
+  socket.emit("move", {
+    x: p.x,
+    z: p.z,
+    rot: yaw
+  });
 }
 
 function animate() {
   requestAnimationFrame(animate);
+
   movePlayer();
 
   Object.values(players).forEach(p => {
     if (p.id !== myId) updatePlayerMesh(p);
+  });
+
+  shotLines = shotLines.filter(s => {
+    if (Date.now() - s.time > 120) {
+      scene.remove(s.line);
+      return false;
+    }
+    return true;
   });
 
   renderer.render(scene, camera);
@@ -320,6 +436,7 @@ function animate() {
 
 window.addEventListener("resize", () => {
   if (!camera || !renderer) return;
+
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight);
