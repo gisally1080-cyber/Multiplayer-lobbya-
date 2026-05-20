@@ -1,45 +1,40 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Public Multiplayer Lobby</title>
-  <link rel="stylesheet" href="style.css" />
+  <meta charset="UTF-8">
+  <title>3D Multiplayer Lobby</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="app">
-    <section id="menu" class="panel">
-      <h1>Public Multiplayer Lobby</h1>
-      <p>Join a room, move around, and chat with real people.</p>
+  <div id="menu">
+    <h1>3D Multiplayer Lobby</h1>
+    <input id="nameInput" placeholder="Username">
+    <div id="rooms"></div>
+  </div>
 
-      <input id="nameInput" maxlength="16" placeholder="Your username" />
+  <div id="game" class="hidden">
+    <div id="hud">
+      <button id="leaveBtn">Leave</button>
+      <span id="roomTitle">Lobby</span>
+      <span id="playerCount">0 players</span>
+    </div>
 
-      <h2>Public Rooms</h2>
-      <div id="rooms"></div>
-    </section>
+    <div id="crosshair">+</div>
 
-    <section id="game" class="hidden">
-      <div class="topbar">
-        <button id="leaveBtn">Leave</button>
-        <strong id="roomTitle">Lobby</strong>
-        <span id="playerCount">0 players</span>
-      </div>
+    <div id="chatBox">
+      <div id="messages"></div>
+      <form id="chatForm">
+        <input id="chatInput" placeholder="Chat..." autocomplete="off">
+        <button>Send</button>
+      </form>
+    </div>
 
-      <canvas id="canvas" width="800" height="500"></canvas>
-
-      <div class="chatBox">
-        <div id="messages"></div>
-        <form id="chatForm">
-          <input id="chatInput" maxlength="120" placeholder="Type chat..." autocomplete="off" />
-          <button>Send</button>
-        </form>
-      </div>
-
-      <p class="hint">Move with WASD or arrow keys. Chat is public in the room.</p>
-    </section>
+    <button id="lookBtn">Tap to Look Around</button>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
   <script src="game.js"></script>
 </body>
 </html>
