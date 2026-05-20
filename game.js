@@ -61,11 +61,22 @@ socket.on("playerMoved", player => {
 });
 
 socket.on("chat", data => {
+  if (!data.system) {
+    Object.values(players).forEach(p => {
+      if (p.name === data.name) {
+        p.lastMessage = data.text;
+        p.messageTime = Date.now();
+      }
+    });
+  }
+
   const div = document.createElement("div");
   div.className = data.system ? "msg system" : "msg";
   div.textContent = data.system ? data.text : `${data.name}: ${data.text}`;
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
+
+  draw();
 });
 
 function joinRoom(roomName) {
@@ -128,14 +139,24 @@ function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   ctx.fillStyle = "rgba(255,255,255,0.08)";
-  for (let x = 0; x < canvas.width; x += 40) {
-    ctx.fillRect(x, 0, 1, canvas.height);
-  }
-  for (let y = 0; y < canvas.height; y += 40) {
-    ctx.fillRect(0, y, canvas.width, 1);
-  }
+  for (let x = 0; x < canvas.width; x += 40) ctx.fillRect(x, 0, 1, canvas.height);
+  for (let y = 0; y < canvas.height; y += 40) ctx.fillRect(0, y, canvas.width, 1);
 
   Object.values(players).forEach(p => {
+    if (p.lastMessage && Date.now() - p.messageTime < 3000) {
+      ctx.font = "14px Arial";
+      ctx.textAlign = "center";
+
+      const textWidth = ctx.measureText(p.lastMessage).width;
+      const bubbleWidth = Math.min(Math.max(textWidth + 24, 60), 180);
+
+      ctx.fillStyle = "rgba(0,0,0,0.75)";
+      ctx.fillRect(p.x - bubbleWidth / 2, p.y - 78, bubbleWidth, 28);
+
+      ctx.fillStyle = "white";
+      ctx.fillText(p.lastMessage.slice(0, 24), p.x, p.y - 59);
+    }
+
     ctx.beginPath();
     ctx.fillStyle = p.color;
     ctx.arc(p.x, p.y, 18, 0, Math.PI * 2);
@@ -155,4 +176,5 @@ function draw() {
 }
 
 setInterval(updateMovement, 1000 / 60);
+setInterval(draw, 500);
 draw();
