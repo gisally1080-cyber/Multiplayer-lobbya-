@@ -4,19 +4,23 @@ const menu = document.getElementById("menu");
 const game = document.getElementById("game");
 const roomsDiv = document.getElementById("rooms");
 const nameInput = document.getElementById("nameInput");
-const leaveBtn = document.getElementById("leaveBtn");
 const roomTitle = document.getElementById("roomTitle");
 const playerCount = document.getElementById("playerCount");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-const messages = document.getElementById("messages");
+const leaveBtn = document.getElementById("leaveBtn");
 const chatForm = document.getElementById("chatForm");
 const chatInput = document.getElementById("chatInput");
+const messages = document.getElementById("messages");
+const lookBtn = document.getElementById("lookBtn");
 
 let myId = null;
 let currentRoom = null;
 let players = {};
+let playerMeshes = {};
 let keys = {};
+let yaw = 0;
+let pitch = 0;
+
+let scene, camera, renderer;
 
 socket.on("welcome", data => {
   myId = data.id;
@@ -27,14 +31,13 @@ socket.on("roomList", rooms => {
   rooms.forEach(room => {
     const div = document.createElement("div");
     div.className = "room";
-    div.innerHTML = `
-      <div>
-        <strong>${room.name}</strong><br>
-        <span>${room.players} player${room.players === 1 ? "" : "s"}</span>
-      </div>
-      <button>Join</button>
-    `;
-    div.querySelector("button").onclick = () => joinRoom(room.name);
+    div.innerHTML = `<b>${room.name}</b><br>${room.players} players<br><button>Join</button>`;
+    div.querySelector("button").onclick = () => {
+      socket.emit("joinRoom", {
+        roomName: room.name,
+        name: nameInput.value || "Player"
+      });
+    };
     roomsDiv.appendChild(div);
   });
 });
@@ -44,137 +47,227 @@ socket.on("joined", data => {
   menu.classList.add("hidden");
   game.classList.remove("hidden");
   roomTitle.textContent = data.roomName;
-  messages.innerHTML = "";
+  init3D();
 });
 
-socket.on("players", serverPlayers => {
-  players = serverPlayers;
-  playerCount.textContent = `${Object.keys(players).length} player${Object.keys(players).length === 1 ? "" : "s"}`;
-  draw();
+socket.on("players", data => {
+  players = data;
+  playerCount.textContent = `${Object.keys(players).length} players`;
+  syncPlayers();
 });
 
-socket.on("playerMoved", player => {
-  if (players[player.id]) {
-    players[player.id] = player;
-    draw();
-  }
+socket.on("playerMoved", p => {
+  players[p.id] = p;
+  updatePlayerMesh(p);
 });
 
 socket.on("chat", data => {
-  if (!data.system) {
-    Object.values(players).forEach(p => {
-      if (p.name === data.name) {
-        p.lastMessage = data.text;
-        p.messageTime = Date.now();
-      }
-    });
-  }
-
   const div = document.createElement("div");
-  div.className = data.system ? "msg system" : "msg";
-  div.textContent = data.system ? data.text : `${data.name}: ${data.text}`;
+  div.textContent = `${data.name}: ${data.text}`;
   messages.appendChild(div);
   messages.scrollTop = messages.scrollHeight;
 
-  draw();
+  if (players[data.id]) {
+    players[data.id].lastMessage = data.text;
+    players[data.id].messageTime = Date.now();
+  }
 });
 
-function joinRoom(roomName) {
-  const name = nameInput.value.trim() || "Player";
-  socket.emit("joinRoom", { roomName, name });
-}
+leaveBtn.onclick = () => location.reload();
 
-leaveBtn.onclick = () => {
-  location.reload();
-};
-
-chatForm.addEventListener("submit", e => {
+chatForm.onsubmit = e => {
   e.preventDefault();
   socket.emit("chat", chatInput.value);
   chatInput.value = "";
-});
+};
 
-window.addEventListener("keydown", e => {
-  keys[e.key.toLowerCase()] = true;
-});
+window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
 
-window.addEventListener("keyup", e => {
-  keys[e.key.toLowerCase()] = false;
-});
+function init3D() {
+  if (renderer) return;
 
-function updateMovement() {
-  if (!currentRoom || !players[myId]) return;
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x87ceeb);
 
-  const me = players[myId];
-  let speed = 4;
-  let moved = false;
+  camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.1, 1000);
+  camera.position.set(0, 2, 5);
 
-  if (keys["w"] || keys["arrowup"]) {
-    me.y -= speed;
-    moved = true;
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(innerWidth, innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  const light = new THREE.DirectionalLight(0xffffff, 1);
+  light.position.set(10, 20, 10);
+  scene.add(light);
+
+  const ambient = new THREE.AmbientLight(0xffffff, 0.5);
+  scene.add(ambient);
+
+  const floor = new THREE.Mesh(
+    new THREE.PlaneGeometry(100, 100),
+    new THREE.MeshStandardMaterial({ color: 0x228833 })
+  );
+  floor.rotation.x = -Math.PI / 2;
+  scene.add(floor);
+
+  for (let i = 0; i < 25; i++) {
+    const box = new THREE.Mesh(
+      new THREE.BoxGeometry(2, 2, 2),
+      new THREE.MeshStandardMaterial({ color: 0x777777 })
+    );
+    box.position.set(Math.random() * 80 - 40, 1, Math.random() * 80 - 40);
+    scene.add(box);
   }
-  if (keys["s"] || keys["arrowdown"]) {
-    me.y += speed;
-    moved = true;
-  }
-  if (keys["a"] || keys["arrowleft"]) {
-    me.x -= speed;
-    moved = true;
-  }
-  if (keys["d"] || keys["arrowright"]) {
-    me.x += speed;
-    moved = true;
-  }
 
-  me.x = Math.max(20, Math.min(canvas.width - 20, me.x));
-  me.y = Math.max(20, Math.min(canvas.height - 20, me.y));
-
-  if (moved) {
-    socket.emit("move", { x: me.x, y: me.y });
-    draw();
-  }
+  setupLookControls();
+  animate();
 }
 
-function draw() {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+function setupLookControls() {
+  lookBtn.onclick = () => {
+    renderer.domElement.requestPointerLock();
+  };
 
-  ctx.fillStyle = "rgba(255,255,255,0.08)";
-  for (let x = 0; x < canvas.width; x += 40) ctx.fillRect(x, 0, 1, canvas.height);
-  for (let y = 0; y < canvas.height; y += 40) ctx.fillRect(0, y, canvas.width, 1);
-
-  Object.values(players).forEach(p => {
-    if (p.lastMessage && Date.now() - p.messageTime < 3000) {
-      ctx.font = "14px Arial";
-      ctx.textAlign = "center";
-
-      const textWidth = ctx.measureText(p.lastMessage).width;
-      const bubbleWidth = Math.min(Math.max(textWidth + 24, 60), 180);
-
-      ctx.fillStyle = "rgba(0,0,0,0.75)";
-      ctx.fillRect(p.x - bubbleWidth / 2, p.y - 78, bubbleWidth, 28);
-
-      ctx.fillStyle = "white";
-      ctx.fillText(p.lastMessage.slice(0, 24), p.x, p.y - 59);
+  document.addEventListener("mousemove", e => {
+    if (document.pointerLockElement === renderer.domElement) {
+      yaw -= e.movementX * 0.002;
+      pitch -= e.movementY * 0.002;
+      pitch = Math.max(-1.3, Math.min(1.3, pitch));
     }
+  });
 
-    ctx.beginPath();
-    ctx.fillStyle = p.color;
-    ctx.arc(p.x, p.y, 18, 0, Math.PI * 2);
-    ctx.fill();
+  let lastTouch = null;
 
-    if (p.id === myId) {
-      ctx.strokeStyle = "white";
-      ctx.lineWidth = 4;
-      ctx.stroke();
-    }
+  renderer.domElement.addEventListener("touchstart", e => {
+    lastTouch = e.touches[0];
+  });
 
-    ctx.fillStyle = "white";
-    ctx.font = "14px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText(p.name, p.x, p.y - 26);
+  renderer.domElement.addEventListener("touchmove", e => {
+    if (!lastTouch) return;
+    const t = e.touches[0];
+    yaw -= (t.clientX - lastTouch.clientX) * 0.006;
+    pitch -= (t.clientY - lastTouch.clientY) * 0.006;
+    pitch = Math.max(-1.3, Math.min(1.3, pitch));
+    lastTouch = t;
   });
 }
 
-setInterval(updateMovement, 1000 / 60);
-setInterval(draw, 500);
-draw();
+function syncPlayers() {
+  Object.values(players).forEach(updatePlayerMesh);
+}
+
+function updatePlayerMesh(p) {
+  if (p.id === myId) return;
+
+  if (!playerMeshes[p.id]) {
+    const group = new THREE.Group();
+
+    const body = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.5, 1.2, 4, 8),
+      new THREE.MeshStandardMaterial({ color: new THREE.Color(p.color) })
+    );
+    body.position.y = 1;
+    group.add(body);
+
+    const labelCanvas = document.createElement("canvas");
+    labelCanvas.width = 256;
+    labelCanvas.height = 128;
+    const labelTexture = new THREE.CanvasTexture(labelCanvas);
+    const label = new THREE.Sprite(new THREE.SpriteMaterial({ map: labelTexture }));
+    label.position.y = 2.4;
+    label.scale.set(3, 1.5, 1);
+    group.add(label);
+
+    group.labelCanvas = labelCanvas;
+    group.labelTexture = labelTexture;
+
+    scene.add(group);
+    playerMeshes[p.id] = group;
+  }
+
+  const mesh = playerMeshes[p.id];
+  mesh.position.set(p.x, 0, p.z);
+  mesh.rotation.y = p.rot;
+
+  const ctx = mesh.labelCanvas.getContext("2d");
+  ctx.clearRect(0, 0, 256, 128);
+  ctx.fillStyle = "white";
+  ctx.font = "28px Arial";
+  ctx.textAlign = "center";
+  ctx.fillText(p.name, 128, 42);
+
+  if (p.lastMessage && Date.now() - (p.messageTime || 0) < 3000) {
+    ctx.fillStyle = "rgba(0,0,0,0.7)";
+    ctx.fillRect(20, 55, 216, 42);
+    ctx.fillStyle = "white";
+    ctx.font = "22px Arial";
+    ctx.fillText(p.lastMessage.slice(0, 18), 128, 84);
+  }
+
+  mesh.labelTexture.needsUpdate = true;
+}
+
+function movePlayer() {
+  if (!players[myId]) return;
+
+  const p = players[myId];
+  const speed = 0.16;
+
+  const forward = new THREE.Vector3(Math.sin(yaw), 0, Math.cos(yaw) * -1);
+  const right = new THREE.Vector3(Math.cos(yaw), 0, Math.sin(yaw));
+
+  if (keys["w"] || keys["arrowup"]) {
+    p.x += forward.x * speed;
+    p.z += forward.z * speed;
+  }
+
+  if (keys["s"] || keys["arrowdown"]) {
+    p.x -= forward.x * speed;
+    p.z -= forward.z * speed;
+  }
+
+  if (keys["a"] || keys["arrowleft"]) {
+    p.x -= right.x * speed;
+    p.z -= right.z * speed;
+  }
+
+  if (keys["d"] || keys["arrowright"]) {
+    p.x += right.x * speed;
+    p.z += right.z * speed;
+  }
+
+  p.x = Math.max(-45, Math.min(45, p.x));
+  p.z = Math.max(-45, Math.min(45, p.z));
+  p.rot = yaw;
+
+  camera.position.set(p.x, 1.8, p.z);
+  camera.rotation.order = "YXZ";
+  camera.rotation.y = yaw;
+  camera.rotation.x = pitch;
+
+  socket.emit("move", {
+    x: p.x,
+    z: p.z,
+    rot: yaw
+  });
+}
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  movePlayer();
+
+  Object.values(players).forEach(p => {
+    if (p.id !== myId) updatePlayerMesh(p);
+  });
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener("resize", () => {
+  if (!camera || !renderer) return;
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
