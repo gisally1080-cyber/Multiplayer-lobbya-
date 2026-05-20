@@ -12,28 +12,53 @@ app.use(express.static("."));
 const rooms = {
   "Lobby 1": {},
   "Lobby 2": {},
-  "Chill Room": {}
+  "Chill Room": {},
+  "Item Asylum": {}
 };
 
-const breakables = {
-  "Lobby 1": {},
-  "Lobby 2": {},
-  "Chill Room": {}
-};
+const rangedItems = [
+  "Blaster", "Slingshot", "Boom Stick", "Paint Rifle", "Crossbow", "Bubble Gun",
+  "Snowball Cannon", "Firecracker", "Star Shooter", "Zap Wand"
+];
 
-for (const room in breakables) {
-  for (let i = 0; i < 14; i++) {
-    breakables[room]["block" + i] = {
-      id: "block" + i,
-      x: Math.random() * 80 - 40,
-      z: Math.random() * 80 - 40,
-      broken: false
-    };
-  }
+const meleeItems = [
+  "Big Sword", "Hammer", "Frying Pan", "Bat", "Stop Sign", "Pipe",
+  "Golden Spoon", "Chair", "Shovel", "Rubber Chicken"
+];
+
+const gadgetItems = [
+  "Speed Cola", "Heal Soda", "Dash Boots", "Smoke Bomb", "Gravity Glove",
+  "Banana Peel", "Shield Watch", "Jump Spring", "Swap Remote", "Mini Turret"
+];
+
+function rand(arr) {
+  return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function safeName(name) {
   return String(name || "Player").replace(/[<>]/g, "").trim().slice(0, 16) || "Player";
+}
+
+function makeLoadout() {
+  return {
+    ranged: rand(rangedItems),
+    melee: rand(meleeItems),
+    gadget: rand(gadgetItems)
+  };
+}
+
+function spawnPlayer(socket, roomName, name) {
+  rooms[roomName][socket.id] = {
+    id: socket.id,
+    name,
+    x: Math.random() * 20 - 10,
+    z: Math.random() * 20 - 10,
+    rot: 0,
+    health: 100,
+    loadout: makeLoadout(),
+    selected: "ranged",
+    color: `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`
+  };
 }
 
 function broadcastRoomList() {
@@ -53,21 +78,11 @@ io.on("connection", socket => {
     socket.data.room = roomName;
     socket.data.name = safeName(name);
 
-    rooms[roomName][socket.id] = {
-      id: socket.id,
-      name: socket.data.name,
-      x: Math.random() * 20 - 10,
-      z: Math.random() * 20 - 10,
-      rot: 0,
-      health: 100,
-      hasGun: socket.data.name.toLowerCase() === "gun",
-      color: `hsl(${Math.floor(Math.random() * 360)}, 80%, 60%)`
-    };
+    spawnPlayer(socket, roomName, socket.data.name);
 
     socket.join(roomName);
     socket.emit("joined", { roomName, id: socket.id });
     io.to(roomName).emit("players", rooms[roomName]);
-    io.to(roomName).emit("breakables", breakables[roomName]);
     broadcastRoomList();
   });
 
@@ -83,53 +98,117 @@ io.on("connection", socket => {
     socket.to(room).emit("playerMoved", p);
   });
 
-  socket.on("shoot", data => {
+  socket.on("selectItem", slot => {
     const room = socket.data.room;
-    const shooter = rooms[room]?.[socket.id];
-    if (!shooter || !shooter.hasGun) return;
+    const p = rooms[room]?.[socket.id];
+    if (!p) return;
 
-    const sx = shooter.x;
-    const sz = shooter.z;
+    if (["ranged", "melee", "gadget"].includes(slot)) {
+      p.selected = slot;
+      io.to(room).emit("players", rooms[room]);
+    }
+  });
+
+  socket.on("useItem", data => {
+    const room = socket.data.room;
+    const p = rooms[room]?.[socket.id];
+    if (!p) return;
+
     const dx = Number(data.dx);
     const dz = Number(data.dz);
+    const selected = p.selected;
+    const itemName = p.loadout[selected];
 
-    io.to(room).emit("gunShot", { x: sx, z: sz, dx, dz });
+    io.to(room).emit("itemUsed", {
+      id: p.id,
+      x: p.x,
+      z: p.z,
+      dx,
+      dz,
+      itemName,
+      selected
+    });
 
-    for (const id in rooms[room]) {
-      if (id === socket.id) continue;
+    if (selected === "ranged") {
+      for (const id in rooms[room]) {
+        if (id === socket.id) continue;
+        const t = rooms[room][id];
 
-      const target = rooms[room][id];
-      const vx = target.x - sx;
-      const vz = target.z - sz;
-      const distance = Math.sqrt(vx * vx + vz * vz);
-      if (distance === 0) continue;
+        const vx = t.x - p.x;
+        const vz = t.z - p.z;
+        const dist = Math.sqrt(vx * vx + vz * vz);
+        if (dist === 0) continue;
 
-      const dot = (vx / distance) * dx + (vz / distance) * dz;
+        const dot = (vx / dist) * dx + (vz / dist) * dz;
 
-      if (distance < 45 && dot > 0.96) {
-        target.health = 100;
-        target.x = Math.random() * 20 - 10;
-        target.z = Math.random() * 20 - 10;
-        io.to(room).emit("players", rooms[room]);
+        if (dist < 45 && dot > 0.96) {
+          t.health -= 35;
+          if (t.health <= 0) {
+            t.health = 100;
+            t.loadout = makeLoadout();
+            t.x = Math.random() * 20 - 10;
+            t.z = Math.random() * 20 - 10;
+          }
+        }
       }
     }
 
-    for (const id in breakables[room]) {
-      const b = breakables[room][id];
-      if (b.broken) continue;
+    if (selected === "melee") {
+      for (const id in rooms[room]) {
+        if (id === socket.id) continue;
+        const t = rooms[room][id];
 
-      const vx = b.x - sx;
-      const vz = b.z - sz;
-      const distance = Math.sqrt(vx * vx + vz * vz);
-      if (distance === 0) continue;
-
-      const dot = (vx / distance) * dx + (vz / distance) * dz;
-
-      if (distance < 55 && dot > 0.97) {
-        b.broken = true;
-        io.to(room).emit("breakables", breakables[room]);
+        const dist = Math.hypot(t.x - p.x, t.z - p.z);
+        if (dist < 5) {
+          t.health -= 50;
+          if (t.health <= 0) {
+            t.health = 100;
+            t.loadout = makeLoadout();
+            t.x = Math.random() * 20 - 10;
+            t.z = Math.random() * 20 - 10;
+          }
+        }
       }
     }
+
+    if (selected === "gadget") {
+      if (itemName === "Heal Soda") {
+        p.health = Math.min(100, p.health + 45);
+      }
+
+      if (itemName === "Dash Boots") {
+        p.x += dx * 9;
+        p.z += dz * 9;
+      }
+
+      if (itemName === "Speed Cola") {
+        p.speedBoostUntil = Date.now() + 5000;
+      }
+
+      if (itemName === "Jump Spring") {
+        p.x += dx * 4;
+        p.z += dz * 4;
+      }
+
+      if (itemName === "Shield Watch") {
+        p.health = Math.min(150, p.health + 50);
+      }
+
+      if (itemName === "Swap Remote") {
+        const others = Object.values(rooms[room]).filter(o => o.id !== p.id);
+        if (others.length) {
+          const target = rand(others);
+          const ox = p.x;
+          const oz = p.z;
+          p.x = target.x;
+          p.z = target.z;
+          target.x = ox;
+          target.z = oz;
+        }
+      }
+    }
+
+    io.to(room).emit("players", rooms[room]);
   });
 
   socket.on("chat", msg => {
