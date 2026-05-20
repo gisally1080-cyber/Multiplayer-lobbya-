@@ -22,15 +22,24 @@
 
     <div id="crosshair">+</div>
 
-    <div id="chatBox">
+    <button id="chatToggle">Chat</button>
+
+    <div id="chatBox" class="hidden">
       <div id="messages"></div>
       <form id="chatForm">
-        <input id="chatInput" placeholder="Chat..." autocomplete="off">
+        <input id="chatInput" placeholder="Type message..." autocomplete="off">
         <button>Send</button>
       </form>
     </div>
 
-    <button id="lookBtn">Tap to Look Around</button>
+    <div id="mobileControls">
+      <button id="upBtn">▲</button>
+      <div>
+        <button id="leftBtn">◀</button>
+        <button id="downBtn">▼</button>
+        <button id="rightBtn">▶</button>
+      </div>
+    </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
